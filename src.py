@@ -1,5 +1,3 @@
-#v0.5.Needs optimization.
-#Split up into plotting py and simulation only. Plotting takes a huge amount of time.
 import numpy as np
 import time
 import matplotlib.animation as animation                    
@@ -24,8 +22,9 @@ def mDist(r1,r2,bx):
 
 def AcceptableMove(r,R,d,norm,Box,bx,dim):
  ''' Moves Particles to allowed space. Allowed means here:
- 1. Particles are not allowed to intersect, e.g. their distance should be greater than their diameter d
- 2. Particles are moving within a box with pbc.
+ 1. Particles are hard pheres, and thus not allowed to intersect in any way, 
+ e.g. their distance should be greater than the diameter d of the particles
+ 2. Particles are moving within a box with periodic boundary conditions.
  ''' 
  ra = np.array(r)
  rr = norm*(np.random.rand(dim)-0.5)
@@ -47,6 +46,7 @@ def AcceptableMove(r,R,d,norm,Box,bx,dim):
  return r_new 
     
 def InitConfigRan(NParticles,Box,dim):
+ ''' Initial configuration uniformly distributed within dim-dimensional Box'''
  a = np.zeros((NParticles,dim))
  for i in range(NParticles):
   for j in range(dim):
@@ -54,8 +54,8 @@ def InitConfigRan(NParticles,Box,dim):
  return a
 
 def Sampler(N,NParticles,d,norm,Box,bx,dim):
-#Implement Thermalization steps, number of steps before update, IO in general
-#Implement Acceptance rate. Optimum: 0.23
+ ''' MCMC real space position sampler of hard spheres in dim-dimensional Box. 
+ Essentially based on Krauth's hard spheres MCMC method''' 
  R0 = InitConfigRan(NParticles,Box,dim)
  #fig = plt.figure()
  #camera = Camera(fig)
@@ -73,6 +73,9 @@ def Sampler(N,NParticles,d,norm,Box,bx,dim):
  return Rc 
 
 def ConnectedDist(R,r_c,dim): 
+ '''Tuples of indices of directly connected particles
+ E.g. (1,2) means that particle 1 and particle 2 are directly connected since their minimal distance
+ is smaller than the critical distance r_c.'''
  n = len(R)
  g = []
  D = np.zeros((n,n))
@@ -87,6 +90,9 @@ def ConnectedDist(R,r_c,dim):
  return list(set((a,b) if a<=b else (b,a) for a,b in g)),D
 
 def ConnectedTuples(pairs):
+ '''Merge Tuples having at least one item in common.
+ E.g. (1,2),(1,4) -> (1,2,4) means since particle 1 is connected to particle 2 and particle 4, 
+ particles 1,2,4 form a cluster'''
  L = {}
  def NewList(x, y):
   L[x] = L[y] = [x, y]
@@ -111,6 +117,7 @@ def ConnectedTuples(pairs):
  return list(set(tuple(l) for l in L.values()))
 
 def ClusterLength(R,r_c,dim):
+ '''Identification of directly connected particles, clusters, largest cluster and size of the largest cluster.'''
  k = ConnectedDist(R,r_c,dim)
  C = ConnectedTuples(k[0])
  D = k[1]
@@ -125,29 +132,3 @@ def ClusterLength(R,r_c,dim):
     indmax.append([m for m, h in enumerate(A) if h == g[i]])
  indmaxf = [m for m, h in enumerate(g) if h == max(g)]
  return C,g,max(g),C[indmaxf[0]]
-
-#----------------------------Initialization------------------------------------
-
-b = Box([4,4],2)
-bx = b[:,1]
-dim = 2
-N=10
-NPar=100
-d=0.5
-norm=0.2
-r_c=0.4
-#------------------------------Simulation--------------------------------------
-t0 = time.time()
-R=Sampler(N,NPar,d,norm,b,bx,dim)
-t1 = time.time()-t0
-
-Cl = ClusterLength(R,r_c,dim)
-
-f = open("rsdis.txt","w")
-for i in range(len(R)):
- f.write("%s, %s \n"%(R[i,0],R[i,1]))
-f.close()
-g = open("test_data.txt","a")
-g.write("%s,%s \n"%(NPar,Cl[2]))
-g.close()
-
