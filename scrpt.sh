@@ -20,7 +20,7 @@ for k in {10..60..50}; do
    rm statistics.py
    python3 statistics${k}.py
   wait;
-  cat avg.txt >> ../outfile.txt
+  paste avg.txt >> ../outfile.txt
  cd ../;
  wait;
 done
