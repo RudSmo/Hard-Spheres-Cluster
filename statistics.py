@@ -1,6 +1,6 @@
 import numpy as np
 
-X = np.genfromtxt("test_data_re.txt",delimiter=",")[:,1]
+X = np.genfromtxt("pclt_data_re.txt",delimiter=",")[:,1]
 
 NPar=10
 S = np.std(X)

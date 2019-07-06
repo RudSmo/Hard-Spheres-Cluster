@@ -22,9 +22,8 @@ def mDist(r1,r2,bx):
 
 def AcceptableMove(r,R,d,norm,Box,bx,dim):
  ''' Moves Particles to allowed space. Allowed means here:
- 1. Particles are hard pheres, and thus not allowed to intersect in any way, 
- e.g. their distance should be greater than the diameter d of the particles
- 2. Particles are moving within a box with periodic boundary conditions.
+ 1. Particles are not allowed to intersect, e.g. their distance should be greater than their diameter d
+ 2. Particles are moving within a box with pbc.
  ''' 
  ra = np.array(r)
  rr = norm*(np.random.rand(dim)-0.5)
@@ -46,7 +45,6 @@ def AcceptableMove(r,R,d,norm,Box,bx,dim):
  return r_new 
     
 def InitConfigRan(NParticles,Box,dim):
- ''' Initial configuration uniformly distributed within dim-dimensional Box'''
  a = np.zeros((NParticles,dim))
  for i in range(NParticles):
   for j in range(dim):
@@ -54,8 +52,8 @@ def InitConfigRan(NParticles,Box,dim):
  return a
 
 def Sampler(N,NParticles,d,norm,Box,bx,dim):
- ''' MCMC real space position sampler of hard spheres in dim-dimensional Box. 
- Essentially based on Krauth's hard spheres MCMC method''' 
+#Implement Thermalization steps, number of steps before update, IO in general
+#Implement Acceptance rate. Optimum: 0.23
  R0 = InitConfigRan(NParticles,Box,dim)
  #fig = plt.figure()
  #camera = Camera(fig)
@@ -72,10 +70,7 @@ def Sampler(N,NParticles,d,norm,Box,bx,dim):
   #ani.save('animation.gif', writer='imagemagick', fps=25)
  return Rc 
 
-def ConnectedDist(R,r_c,dim): 
- '''Tuples of indices of directly connected particles
- E.g. (1,2) means that particle 1 and particle 2 are directly connected since their minimal distance
- is smaller than the critical distance r_c.'''
+def ConnectedDist(R,r_c,dim,bx):
  n = len(R)
  g = []
  D = np.zeros((n,n))
@@ -83,16 +78,13 @@ def ConnectedDist(R,r_c,dim):
   ri = np.array(R[i,:])
   for j in range(n):
    rj = np.array(R[j,:])
-   D[i,j] = np.sqrt(Scalar(ri-rj,ri-rj,dim))
+   D[i,j] = mDist(ri,rj,bx)
    if D[i,j] <= r_c and i!=j:
     g += [(i,j)]
  g = set(g)
  return list(set((a,b) if a<=b else (b,a) for a,b in g)),D
 
 def ConnectedTuples(pairs):
- '''Merge Tuples having at least one item in common.
- E.g. (1,2),(1,4) -> (1,2,4) means since particle 1 is connected to particle 2 and particle 4, 
- particles 1,2,4 form a cluster'''
  L = {}
  def NewList(x, y):
   L[x] = L[y] = [x, y]
@@ -111,14 +103,13 @@ def ConnectedTuples(pairs):
   if xList and not yList:
    AddToList(xList, y)
   if yList and not xList:
-   AddToList(yList, x)            
+   AddToList(yList, x)
   if xList and yList and xList != yList:
    MergeLists(xList, yList)
  return list(set(tuple(l) for l in L.values()))
 
-def ClusterLength(R,r_c,dim):
- '''Identification of directly connected particles, clusters, largest cluster and size of the largest cluster.'''
- k = ConnectedDist(R,r_c,dim)
+def ClusterLength(R,r_c,dim,bx):
+ k = ConnectedDist(R,r_c,dim,bx)
  C = ConnectedTuples(k[0])
  D = k[1]
  A = []
@@ -126,9 +117,61 @@ def ClusterLength(R,r_c,dim):
  g = np.zeros(len(C))
  for i in range(len(C)):
   for j in C[i]:
-   for l in C[i]: 
+   for l in C[i]:
     A.append(D[j,l])
     g[i] = max(A)
     indmax.append([m for m, h in enumerate(A) if h == g[i]])
  indmaxf = [m for m, h in enumerate(g) if h == max(g)]
- return C,g,max(g),C[indmaxf[0]]
+ if len(C)==0:
+  return 0.0,0.0,0.0,0.0
+ else:
+  return C,g,max(g),C[indmaxf[0]]
+
+def Percolate(R,r_c,dim,bx):
+ bx1 = 3*bx
+ p = 0
+ Cl = ClusterLength(R,r_c,dim,bx)
+ if dim == 2:
+  Rx = np.array([[R[i,0]+2*bx[0],R[i,1]] for i in range(len(R))])
+  Ry = np.array([[R[i,0],R[i,1]+2*bx[1]] for i in range(len(R))])
+  Rxx = np.array([[R[i,0]-2*bx[0],R[i,1]] for i in range(len(R))])
+  Ryy = np.array([[R[i,0],R[i,1]-2*bx[1]] for i in range(len(R))])
+  R1 = np.concatenate((R,Rx,Ry,Rxx,Ryy),axis=0)
+  Cl1 = ClusterLength(R1,r_c,dim,bx1)
+  if Cl1[0] == 0:
+   p = 0
+  elif len(Cl1[0]) == len(Cl[0])*2**(dim)+1:
+   p = 0
+  else:
+   p = 1
+ else:  
+  raise ValueError("Other Dimensions not implemented yet. Only dim=2 works.")
+ return p
+
+#----------------------------Initialization------------------------------------
+
+b = Box([3,3],2)
+bx = b[:,1]
+dim = 2
+N=100
+NPar=1
+d=0.5
+norm=0.2
+r_c=0.4
+#------------------------------Simulation--------------------------------------
+t0 = time.time()
+R=Sampler(N,NPar,d,norm,b,bx,dim)
+t1 = time.time()-t0
+
+Cl = ClusterLength(R,r_c,dim,bx)
+Pc = Percolate(R,r_c,dim,bx)
+f = open("rsdis.txt","w")
+for i in range(len(R)):
+ f.write("%s, %s \n"%(R[i,0],R[i,1]))
+f.close()
+g = open("clstr_data.txt","a")
+g.write("%s,%s \n"%(NPar,Cl[2]))
+g.close()
+h = open("pclt_data.txt","a")
+h.write("%s,%s \n"%(NPar,Pc))
+h.close()
